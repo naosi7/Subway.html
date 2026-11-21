@@ -1,2 +1,480 @@
-# Subway.html
-E um jogo
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Subway Runner 3D</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#0a0a12; font-family:system-ui,sans-serif; touch-action:none; }
+  #game { position:fixed; inset:0; }
+  #hud {
+    position:fixed; top:14px; left:14px; right:14px; display:flex; justify-content:space-between;
+    color:#fff; font-weight:900; font-size:clamp(16px,3.8vw,22px); text-shadow:0 2px 10px rgba(0,0,0,.8);
+    pointer-events:none; z-index:10; letter-spacing:.5px; gap:8px;
+  }
+  #hud .pill {
+    background:rgba(0,0,0,.35); padding:8px 14px; border-radius:30px; backdrop-filter:blur(6px);
+    border:1px solid rgba(255,255,255,.15); white-space:nowrap;
+  }
+  #hud .pill.frozen {
+    border-color:rgba(255,215,0,.8); box-shadow:0 0 12px rgba(255,215,0,.6); color:#ffe066;
+  }
+  #overlay {
+    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 50% 40%, rgba(20,20,40,.75), rgba(0,0,0,.92));
+    color:#fff; text-align:center; z-index:20; padding:24px; backdrop-filter:blur(4px);
+  }
+  #overlay h1 {
+    font-size:clamp(32px,9vw,64px); margin-bottom:16px; letter-spacing:2px;
+    background:linear-gradient(180deg,#ffe066,#ff8800); -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent; filter:drop-shadow(0 4px 12px rgba(255,140,0,.4));
+  }
+  #overlay p { font-size:clamp(14px,3.5vw,17px); opacity:.85; margin-bottom:28px; line-height:1.6; max-width:400px; }
+  #overlay button {
+    padding:18px 48px; font-size:21px; font-weight:900; border:none; border-radius:16px;
+    background:linear-gradient(180deg,#ffdd44,#ffaa00); color:#1a1a1a; cursor:pointer;
+    box-shadow:0 8px 0 #b37400, 0 12px 24px rgba(0,0,0,.4); letter-spacing:1px;
+    transition:transform .08s;
+  }
+  #overlay button:active { transform:translateY(4px); box-shadow:0 4px 0 #b37400; }
+  .hidden { display:none !important; }
+  #hint {
+    position:fixed; bottom:18px; left:0; right:0; text-align:center; color:#fff;
+    font-size:12px; opacity:.5; pointer-events:none; z-index:10; text-shadow:0 1px 4px #000;
+    letter-spacing:.3px;
+  }
+  #toast {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(.6);
+    font-size:clamp(28px,8vw,48px); font-weight:900; color:#ffe066;
+    text-shadow:0 0 20px rgba(255,215,0,.9), 0 4px 12px rgba(0,0,0,.6);
+    opacity:0; pointer-events:none; z-index:15; transition:all .18s ease-out;
+  }
+  #toast.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="hud">
+  <div class="pill" id="timerPill">⏱ <span id="timer">0.0</span>s</div>
+  <div class="pill">🪙 <span id="coins">0</span></div>
+  <div class="pill">🏆 <span id="score">0</span></div>
+</div>
+<div id="toast">+1</div>
+<div id="hint">setas / WASD · baixo/S rola · arraste na tela</div>
+<div id="overlay">
+  <h1>SUBWAY RUNNER 3D</h1>
+  <p>Corra pelas três pistas. Desvie dos trens, role por baixo das barreiras, colete moedas. Cada moeda congela o tempo por um instante.</p>
+  <button id="startBtn">JOGAR</button>
+</div>
+
+<!-- Carrega o Three.js via script global, que funciona em WebView mobile -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+// O código começa quando a página termina de carregar
+window.addEventListener('load', () => {
+  
+  // Verifica se o Three.js carregou
+  if (typeof THREE === 'undefined') {
+    alert("Erro: Three.js não carregou. Verifique sua conexão com a internet.");
+    return;
+  }
+
+  // ================= CENA =================
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1a2a3a);
+  scene.fog = new THREE.FogExp2(0x1a2a3a, 0.012);
+
+  const camera = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.1, 400);
+  const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Tone mapping (r128)
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  document.getElementById('game').appendChild(renderer.domElement);
+
+  // ================= TEXTURAS PROCEDURAIS =================
+  function makeGravelTexture() {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#4a4a52'; ctx.fillRect(0,0,256,256);
+    for (let i=0; i<3000; i++) {
+      const g = 30 + Math.random()*60;
+      ctx.fillStyle = `rgb(${g},${g},${g+5})`;
+      const s = 1 + Math.random()*3;
+      ctx.fillRect(Math.random()*256, Math.random()*256, s, s);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(4, 40);
+    return tex;
+  }
+  function makeMetalTexture() {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#8a8a94'; ctx.fillRect(0,0,128,128);
+    ctx.fillStyle = '#6a6a74';
+    for (let y=0; y<128; y+=8) ctx.fillRect(0,y,128,2);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping; return tex;
+  }
+  function makeBrickTexture() {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#3a2a2a'; ctx.fillRect(0,0,256,256);
+    const bw = 32, bh = 16;
+    for (let y=0; y<256; y+=bh) {
+      const off = (y/bh)%2 ? bw/2 : 0;
+      for (let x=-bw; x<256; x+=bw) {
+        const r = 100 + Math.random()*40, g = 60 + Math.random()*25, b = 50 + Math.random()*20;
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(x+off+1, y+1, bw-2, bh-2);
+      }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(2, 8); return tex;
+  }
+  const gravelTex = makeGravelTexture();
+  const metalTex = makeMetalTexture();
+  const brickTex = makeBrickTexture();
+
+  // ================= LUZ =================
+  scene.add(new THREE.HemisphereLight(0x8899cc, 0x222233, 0.8));
+  const sun = new THREE.DirectionalLight(0xffeedd, 2.2);
+  sun.position.set(15, 40, 20);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024); // reduzido para mobile
+  sun.shadow.camera.left = -25; sun.shadow.camera.right = 25;
+  sun.shadow.camera.top = 50; sun.shadow.camera.bottom = -20;
+  sun.shadow.camera.near = 1; sun.shadow.camera.far = 100;
+  sun.shadow.bias = -0.0005;
+  scene.add(sun);
+
+  const poleLights = [];
+  for (let z = 10; z > -200; z -= 30) {
+    for (const x of [-5.8, 5.8]) {
+      const pl = new THREE.PointLight(0xffaa55, 1.5, 18, 2);
+      pl.position.set(x, 5, z); scene.add(pl); poleLights.push(pl);
+    }
+  }
+
+  // ================= PISTAS =================
+  const LANES = [-2.2, 0, 2.2];
+  const TRACK_LEN = 260;
+
+  const groundMat = new THREE.MeshStandardMaterial({ map:gravelTex, roughness:0.95, metalness:0.05 });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(11, TRACK_LEN), groundMat);
+  ground.rotation.x = -Math.PI/2;
+  ground.position.z = -TRACK_LEN/2 + 20;
+  ground.receiveShadow = true; scene.add(ground);
+
+  const railMat = new THREE.MeshStandardMaterial({ map:metalTex, color:0xaaaaaa, metalness:0.85, roughness:0.35 });
+  for (const lane of LANES) {
+    for (const off of [-0.65, 0.65]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, TRACK_LEN), railMat);
+      rail.position.set(lane + off, 0.05, -TRACK_LEN/2 + 20);
+      rail.castShadow = true; scene.add(rail);
+    }
+  }
+
+  const tieMat = new THREE.MeshStandardMaterial({ color:0x4a3525, roughness:1 });
+  const tieGeo = new THREE.BoxGeometry(1.9, 0.08, 0.28);
+  const ties = new THREE.InstancedMesh(tieGeo, tieMat, 3 * 120);
+  let ti = 0;
+  const dummy = new THREE.Object3D();
+  for (const lane of LANES) {
+    for (let z = 20; z > -TRACK_LEN + 20; z -= 2.2) {
+      dummy.position.set(lane, 0.03, z);
+      dummy.updateMatrix();
+      ties.setMatrixAt(ti++, dummy.matrix);
+    }
+  }
+  ties.castShadow = true; scene.add(ties);
+
+  const wallMat = new THREE.MeshStandardMaterial({ map:brickTex, roughness:0.9 });
+  for (const side of [-5.6, 5.6]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(0.8, 6, TRACK_LEN), wallMat);
+    wall.position.set(side, 3, -TRACK_LEN/2 + 20);
+    wall.receiveShadow = true; wall.castShadow = true; scene.add(wall);
+  }
+
+  const poleMat = new THREE.MeshStandardMaterial({ color:0x2a2a30, roughness:0.6, metalness:0.5 });
+  for (let z = 10; z > -200; z -= 30) {
+    for (const x of [-5.8, 5.8]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 5, 8), poleMat);
+      pole.position.set(x, 2.5, z); pole.castShadow = true; scene.add(pole);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8),
+        new THREE.MeshStandardMaterial({ color:0xffcc66, emissive:0xffaa33, emissiveIntensity:2 }));
+      lamp.position.set(x, 5, z); scene.add(lamp);
+    }
+  }
+
+  // ================= PERSONAGEM =================
+  const player = new THREE.Group();
+  const skinMat = new THREE.MeshStandardMaterial({ color:0xe8b888, roughness:0.7 });
+  const shirtMat = new THREE.MeshStandardMaterial({ color:0x2288dd, roughness:0.6 });
+  const pantsMat = new THREE.MeshStandardMaterial({ color:0x2a2a44, roughness:0.8 });
+  const shoeMat = new THREE.MeshStandardMaterial({ color:0xdddddd, roughness:0.5 });
+  const hairMat = new THREE.MeshStandardMaterial({ color:0x1a1210, roughness:0.9 });
+
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.75, 0.36), shirtMat);
+  torso.position.y = 1.25; torso.castShadow = true; player.add(torso);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 20, 20), skinMat);
+  head.position.y = 1.85; head.castShadow = true; player.add(head);
+
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.31, 20, 20, 0, Math.PI*2, 0, Math.PI*0.55), hairMat);
+  hair.position.y = 1.9; hair.castShadow = true; player.add(hair);
+
+  const eyeMat = new THREE.MeshStandardMaterial({ color:0x111111 });
+  for (const x of [-0.1, 0.1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), eyeMat);
+    eye.position.set(x, 1.88, 0.27); player.add(eye);
+  }
+
+  const arms = [];
+  for (const side of [-1, 1]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 0.4, 1.55, 0);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), shirtMat);
+    arm.position.y = -0.35; arm.castShadow = true; pivot.add(arm);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), skinMat);
+    hand.position.y = -0.72; hand.castShadow = true; pivot.add(hand);
+    player.add(pivot); arms.push(pivot);
+  }
+
+  const legs = [];
+  for (const side of [-1, 1]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 0.16, 0.85, 0);
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.75, 0.22), pantsMat);
+    leg.position.y = -0.38; leg.castShadow = true; pivot.add(leg);
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.34), shoeMat);
+    shoe.position.set(0, -0.78, 0.05); shoe.castShadow = true; pivot.add(shoe);
+    player.add(pivot); legs.push(pivot);
+  }
+
+  player.position.set(0, 0, 0); scene.add(player);
+
+  // ================= ESTADO =================
+  const state = {
+    running: false,
+    lane: 1,
+    targetX: 0,
+    speed: 18,
+    baseSpeed: 18,
+    coins: 0,
+    score: 0,
+    jumping: false,
+    rolling: false,
+    rollT: 0,
+    vy: 0,
+    y: 0,
+    obstacles: [],
+    coinObjs: [],
+    spawnZ: -160,
+    t: 0,
+    touchStart: null,
+    walkPhase: 0,
+    time: 0,
+    freezeT: 0,
+    freezePerCoin: 0.4
+  };
+
+  // ================= OBSTÁCULOS =================
+  const trainMat = new THREE.MeshStandardMaterial({ color:0xcc3344, roughness:0.5, metalness:0.3 });
+  const trainRoofMat = new THREE.MeshStandardMaterial({ color:0xaa2233, roughness:0.6 });
+  const barrierMat = new THREE.MeshStandardMaterial({ color:0xff8800, roughness:0.6, metalness:0.1 });
+  const barrierStripeMat = new THREE.MeshStandardMaterial({ color:0x222222, roughness:0.7 });
+
+  function spawnObstacle() {
+    const lane = Math.floor(Math.random()*3);
+    const x = LANES[lane];
+    const type = Math.random();
+    if (type < 0.45) {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 2.4, 5.5), trainMat);
+      body.position.y = 1.2; body.castShadow = true; g.add(body);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.2, 5.5), trainRoofMat);
+      roof.position.y = 2.45; g.add(roof);
+      const winMat = new THREE.MeshStandardMaterial({ color:0x223344, emissive:0x334455, emissiveIntensity:0.3, roughness:0.2, metalness:0.6 });
+      for (let z = -2; z <= 2; z += 1.4) {
+        for (const wx of [-0.96, 0.96]) {
+          const win = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.5, 0.9), winMat);
+          win.position.set(wx, 1.6, z); g.add(win);
+        }
+      }
+      g.position.set(x, 0, state.spawnZ);
+      g.userData = { h: 2.4, rollable: false };
+      scene.add(g); state.obstacles.push(g);
+    } else if (type < 0.8) {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.2, 0.4), barrierMat);
+      body.position.y = 0.6; body.castShadow = true; g.add(body);
+      for (let s = -0.8; s <= 0.8; s += 0.4) {
+        const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.2, 0.42), barrierStripeMat);
+        stripe.position.set(s, 0.6, 0); g.add(stripe);
+      }
+      g.position.set(x, 0, state.spawnZ);
+      g.userData = { h: 1.2, rollable: false };
+      scene.add(g); state.obstacles.push(g);
+    } else {
+      const g = new THREE.Group();
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.5, 0.4), barrierMat);
+      bar.position.y = 1.6; bar.castShadow = true; g.add(bar);
+      for (const sx of [-0.95, 0.95]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.85, 0.12), poleMat);
+        post.position.set(sx, 0.925, 0); g.add(post);
+      }
+      g.position.set(x, 0, state.spawnZ);
+      g.userData = { h: 2, rollable: true };
+      scene.add(g); state.obstacles.push(g);
+    }
+  }
+
+  // ================= MOEDAS =================
+  const coinGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.08, 20);
+  const coinMat = new THREE.MeshStandardMaterial({ color:0xffd700, metalness:0.95, roughness:0.15, emissive:0x664400, emissiveIntensity:0.5 });
+  function spawnCoin(lane, z) {
+    const c = new THREE.Mesh(coinGeo, coinMat);
+    c.rotation.x = Math.PI/2;
+    c.position.set(LANES[lane], 0.75, z);
+    c.castShadow = true; scene.add(c); state.coinObjs.push(c);
+  }
+
+  // ================= CONTROLES =================
+  function moveLane(dir) {
+    if (!state.running || state.rolling) return;
+    const next = Math.max(0, Math.min(2, state.lane + dir));
+    if (next !== state.lane) { state.lane = next; state.targetX = LANES[next]; }
+  }
+  function jump() {
+    if (!state.running || state.jumping || state.rolling) return;
+    state.jumping = true; state.vy = 9.5;
+  }
+  function roll() {
+    if (!state.running || state.jumping || state.rolling) return;
+    state.rolling = true; state.rollT = 0.65;
+  }
+
+  window.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'arrowleft' || k === 'a') moveLane(-1);
+    if (k === 'arrowright' || k === 'd') moveLane(1);
+    if (k === 'arrowup' || k === 'w' || k === ' ') jump();
+    if (k === 'arrowdown' || k === 's') roll();
+  });
+
+  const canvas = renderer.domElement;
+  canvas.addEventListener('touchstart', (e) => {
+    state.touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: performance.now() };
+  }, { passive:true });
+  canvas.addEventListener('touchend', (e) => {
+    if (!state.touchStart) return;
+    const dx = e.changedTouches[0].clientX - state.touchStart.x;
+    const dy = e.changedTouches[0].clientY - state.touchStart.y;
+    const dt = performance.now() - state.touchStart.t;
+    if (Math.abs(dx) < 25 && Math.abs(dy) < 25 && dt < 250) jump();
+    else if (Math.abs(dx) > Math.abs(dy)) moveLane(dx > 0 ? 1 : -1);
+    else if (dy < -30) jump();
+    else if (dy > 30) roll();
+    state.touchStart = null;
+  }, { passive:true });
+
+  // ================= TOAST =================
+  const toastEl = document.getElementById('toast');
+  let toastTimer = null;
+  function showToast(text) {
+    toastEl.textContent = text;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 300);
+  }
+
+  // ================= LOOP =================
+  const clock = new THREE.Clock();
+  let coinTimer = 0, obsTimer = 0;
+
+  function reset() {
+    for (const o of state.obstacles) scene.remove(o);
+    for (const c of state.coinObjs) scene.remove(c);
+    state.obstacles = []; state.coinObjs = [];
+    state.lane = 1; state.targetX = 0;
+    state.coins = 0; state.score = 0;
+    state.speed = state.baseSpeed;
+    state.y = 0; state.vy = 0;
+    state.jumping = false; state.rolling = false; state.rollT = 0;
+    state.t = 0; coinTimer = 0; obsTimer = 0; state.walkPhase = 0;
+    state.time = 0; state.freezeT = 0;
+    player.position.set(0, 0, 0);
+    player.rotation.set(0,0,0);
+    player.scale.set(1,1,1);
+    arms[0].rotation.set(0,0,0); arms[1].rotation.set(0,0,0);
+    legs[0].rotation.set(0,0,0); legs[1].rotation.set(0,0,0);
+    document.getElementById('coins').textContent = '0';
+    document.getElementById('score').textContent = '0';
+    document.getElementById('timer').textContent = '0.0';
+    document.getElementById('timerPill').classList.remove('frozen');
+  }
+
+  function gameOver() {
+    state.running = false;
+    const ov = document.getElementById('overlay');
+    ov.classList.remove('hidden');
+    ov.querySelector('h1').textContent = 'BATEU!';
+    ov.querySelector('p').innerHTML = `Moedas: <b>${state.coins}</b><br>Tempo: <b>${state.time.toFixed(1)}s</b><br>Pontos: <b>${state.score}</b>`;
+    ov.querySelector('button').textContent = 'TENTAR DE NOVO';
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+
+    if (state.running) {
+      let gameDt = dt;
+      if (state.freezeT > 0) {
+        state.freezeT -= dt;
+        gameDt = 0;
+        document.getElementById('timerPill').classList.add('frozen');
+        if (state.freezeT <= 0) document.getElementById('timerPill').classList.remove('frozen');
+      } else {
+        document.getElementById('timerPill').classList.remove('frozen');
+      }
+      if (gameDt > 0) {
+        state.time += gameDt;
+        state.t += gameDt;
+      }
+      document.getElementById('timer').textContent = state.time.toFixed(1);
+
+      state.speed = state.baseSpeed + state.t * 0.65;
+      state.score = Math.floor(state.t * 10);
+
+      player.position.x += (state.targetX - player.position.x) * Math.min(1, dt * 12);
+
+      if (state.jumping) {
+        state.y += state.vy * dt;
+        state.vy -= 30 * dt;
+        if (state.y <= 0) { state.y = 0; state.vy = 0; state.jumping = false; }
+      }
+
+      if (state.rolling) {
+        state.rollT -= dt;
+        const p = 1 - Math.max(0, state.rollT) / 0.65;
+        player.rotation.x = Math.sin(p * Math.PI) * -1.4;
+        player.position.y = state.y + Math.sin(p * Math.PI) * -0.3;
+        if (state.rollT <= 0) {
+          state.rolling = false;
+          player.rotation.x = 0;
+          player.position.y = 0;
+        }
+      } else {
+        player.position.y = state.y;
+      }
+
+      if (!state.rolling) {
+        state.walkPhase += dt * state.speed * 0.55;
+        const swing = Math.sin(state.walkPhase) * 0.9;
+ 
