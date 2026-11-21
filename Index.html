@@ -68,20 +68,15 @@
   <button id="startBtn">JOGAR</button>
 </div>
 
-<!-- Carrega o Three.js via script global, que funciona em WebView mobile -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
 <script>
-// O código começa quando a página termina de carregar
 window.addEventListener('load', () => {
-  
-  // Verifica se o Three.js carregou
   if (typeof THREE === 'undefined') {
     alert("Erro: Three.js não carregou. Verifique sua conexão com a internet.");
     return;
   }
 
-  // ================= CENA =================
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x1a2a3a);
   scene.fog = new THREE.FogExp2(0x1a2a3a, 0.012);
@@ -92,12 +87,10 @@ window.addEventListener('load', () => {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  // Tone mapping (r128)
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   document.getElementById('game').appendChild(renderer.domElement);
 
-  // ================= TEXTURAS PROCEDURAIS =================
   function makeGravelTexture() {
     const c = document.createElement('canvas'); c.width = c.height = 256;
     const ctx = c.getContext('2d');
@@ -141,12 +134,11 @@ window.addEventListener('load', () => {
   const metalTex = makeMetalTexture();
   const brickTex = makeBrickTexture();
 
-  // ================= LUZ =================
   scene.add(new THREE.HemisphereLight(0x8899cc, 0x222233, 0.8));
   const sun = new THREE.DirectionalLight(0xffeedd, 2.2);
   sun.position.set(15, 40, 20);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024); // reduzido para mobile
+  sun.shadow.mapSize.set(1024, 1024);
   sun.shadow.camera.left = -25; sun.shadow.camera.right = 25;
   sun.shadow.camera.top = 50; sun.shadow.camera.bottom = -20;
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 100;
@@ -161,7 +153,6 @@ window.addEventListener('load', () => {
     }
   }
 
-  // ================= PISTAS =================
   const LANES = [-2.2, 0, 2.2];
   const TRACK_LEN = 260;
 
@@ -212,7 +203,6 @@ window.addEventListener('load', () => {
     }
   }
 
-  // ================= PERSONAGEM =================
   const player = new THREE.Group();
   const skinMat = new THREE.MeshStandardMaterial({ color:0xe8b888, roughness:0.7 });
   const shirtMat = new THREE.MeshStandardMaterial({ color:0x2288dd, roughness:0.6 });
@@ -259,32 +249,12 @@ window.addEventListener('load', () => {
 
   player.position.set(0, 0, 0); scene.add(player);
 
-  // ================= ESTADO =================
   const state = {
-    running: false,
-    lane: 1,
-    targetX: 0,
-    speed: 18,
-    baseSpeed: 18,
-    coins: 0,
-    score: 0,
-    jumping: false,
-    rolling: false,
-    rollT: 0,
-    vy: 0,
-    y: 0,
-    obstacles: [],
-    coinObjs: [],
-    spawnZ: -160,
-    t: 0,
-    touchStart: null,
-    walkPhase: 0,
-    time: 0,
-    freezeT: 0,
-    freezePerCoin: 0.4
+    running: false, lane: 1, targetX: 0, speed: 18, baseSpeed: 18, coins: 0, score: 0,
+    jumping: false, rolling: false, rollT: 0, vy: 0, y: 0, obstacles: [], coinObjs: [],
+    spawnZ: -160, t: 0, touchStart: null, walkPhase: 0, time: 0, freezeT: 0, freezePerCoin: 0.4
   };
 
-  // ================= OBSTÁCULOS =================
   const trainMat = new THREE.MeshStandardMaterial({ color:0xcc3344, roughness:0.5, metalness:0.3 });
   const trainRoofMat = new THREE.MeshStandardMaterial({ color:0xaa2233, roughness:0.6 });
   const barrierMat = new THREE.MeshStandardMaterial({ color:0xff8800, roughness:0.6, metalness:0.1 });
@@ -335,7 +305,6 @@ window.addEventListener('load', () => {
     }
   }
 
-  // ================= MOEDAS =================
   const coinGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.08, 20);
   const coinMat = new THREE.MeshStandardMaterial({ color:0xffd700, metalness:0.95, roughness:0.15, emissive:0x664400, emissiveIntensity:0.5 });
   function spawnCoin(lane, z) {
@@ -345,7 +314,6 @@ window.addEventListener('load', () => {
     c.castShadow = true; scene.add(c); state.coinObjs.push(c);
   }
 
-  // ================= CONTROLES =================
   function moveLane(dir) {
     if (!state.running || state.rolling) return;
     const next = Math.max(0, Math.min(2, state.lane + dir));
@@ -384,7 +352,6 @@ window.addEventListener('load', () => {
     state.touchStart = null;
   }, { passive:true });
 
-  // ================= TOAST =================
   const toastEl = document.getElementById('toast');
   let toastTimer = null;
   function showToast(text) {
@@ -394,7 +361,6 @@ window.addEventListener('load', () => {
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 300);
   }
 
-  // ================= LOOP =================
   const clock = new THREE.Clock();
   let coinTimer = 0, obsTimer = 0;
 
@@ -477,4 +443,24 @@ window.addEventListener('load', () => {
       if (!state.rolling) {
         state.walkPhase += dt * state.speed * 0.55;
         const swing = Math.sin(state.walkPhase) * 0.9;
- 
+        const swing2 = Math.sin(state.walkPhase + Math.PI) * 0.9;
+        legs[0].rotation.x = swing;
+        legs[1].rotation.x = swing2;
+        arms[0].rotation.x = swing2 * 0.7;
+        arms[1].rotation.x = swing * 0.7;
+        if (!state.jumping) player.position.y = state.y + Math.abs(Math.sin(state.walkPhase)) * 0.05;
+      } else {
+        arms[0].rotation.x = -1.2; arms[1].rotation.x = -1.2;
+        legs[0].rotation.x = 1.0; legs[1].rotation.x = 1.0;
+      }
+
+      obsTimer -= dt;
+      if (obsTimer <= 0) { spawnObstacle(); obsTimer = 0.9 + Math.random()*0.55; }
+      coinTimer -= dt;
+      if (coinTimer <= 0) {
+        const lane = Math.floor(Math.random()*3);
+        for (let i=0; i<4; i++) spawnCoin(lane, -160 - i*1.5);
+        coinTimer = 1.8 + Math.random();
+      }
+
+      for (let i = state.obstacles.length-1; i >=
